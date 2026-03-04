@@ -70,7 +70,6 @@ function updateTitlePrefix(title, newPrefix) {
 }
 
 function resetTask(task, today) {
-  const prefix = datePrefix(today);
   return {
     ...task,
     status: "bekliyor",
@@ -79,7 +78,6 @@ function resetTask(task, today) {
     lastResetDate: today,
     overdue: false,
     postponedUntil: null,
-    title: updateTitlePrefix(task.title, prefix),
   };
 }
 
@@ -529,6 +527,20 @@ function Yapilacaklar() {
     try{localStorage.setItem(STORAGE_KEY,JSON.stringify({tasks,customCategories,closedTasks}));}catch(_){}
   },[tasks,customCategories,closedTasks,loaded]);
 
+  // Gün değişimini runtime'da tespit et (Seçenek B)
+  useEffect(()=>{
+    if (!loaded) return;
+    const interval = setInterval(()=>{
+      const today = localDateStr();
+      setTasks(prev=>{
+        const processed = prev.map(t=>processTaskOnDayChange(t,today));
+        const changed = processed.some((t,i)=>t.status!==prev[i].status||t.overdue!==prev[i].overdue||t.lastResetDate!==prev[i].lastResetDate);
+        return changed ? processed : prev;
+      });
+    }, 30000); // Her 30 saniyede bir kontrol
+    return ()=>clearInterval(interval);
+  },[loaded]);
+
   const allCategories = [...new Set([...DEFAULT_CATEGORIES,...customCategories,...tasks.map(t=>t.category)])];
 
   const cycleStatus = (id) => {
@@ -609,12 +621,53 @@ function Yapilacaklar() {
     s.add();
     const today=localDateStr();
     const id=Date.now();
-    setTasks(prev=>[...prev,{id,category:newTask.category,emoji:newTask.emoji,title:datePrefix()+" "+title,detail:newTask.detail,priority:newTask.priority,time:newTask.time,status:"bekliyor",note:"",recurrence:"tek-seferlik",recurrenceDays:[],subtasks:[],startedAt:null,lastResetDate:today,overdue:false,postponedUntil:null}]);
+    // Tarih etiketini zaman değerine göre belirle
+    let initialPrefix;
+    if(newTask.time==="bugun") initialPrefix=datePrefix(today);
+    else if(newTask.time==="yarin") initialPrefix=datePrefix(addDays(today,1));
+    else if(newTask.time&&newTask.time.match(/^\d{4}/)) initialPrefix=datePrefix(newTask.time);
+    else initialPrefix=datePrefix(today);
+    setTasks(prev=>[...prev,{id,category:newTask.category,emoji:newTask.emoji,title:initialPrefix+" "+title,detail:newTask.detail,priority:newTask.priority,time:newTask.time,status:"bekliyor",note:"",recurrence:"tek-seferlik",recurrenceDays:[],subtasks:[],startedAt:null,lastResetDate:today,overdue:false,postponedUntil:null}]);
     setNewTask({title:"",detail:"",category:"Kişisel",emoji:"📌",priority:"orta",time:"bugun"});
     setAddingTask(false);
   };
 
   const saveTitle = (id) => { setTasks(prev=>prev.map(t=>t.id===id?{...t,title:titleInput.trim()||t.title}:t)); setEditingTitle(null); };
+
+  // Tekrarlama değişince tarih etiketini güncelle
+  const handleRecurrenceChange = (taskId, changes) => {
+    setTasks(prev=>prev.map(t=>{
+      if(t.id!==taskId)return t;
+      const updated = {...t,...changes};
+      const today = localDateStr();
+      const days = normalizeDays(updated.recurrenceDays);
+      let newPrefix = null;
+      if(updated.recurrence==="haftalik"&&days.length>0){
+        // Bugün bu günlerden biri mi?
+        const todayD = new Date(today+"T00:00:00");
+        const todayWD = WEEKDAYS[todayD.getDay()===0?6:todayD.getDay()-1];
+        if(days.includes(todayWD)) newPrefix=datePrefix(today);
+        else {
+          const next=getNextScheduledDate(updated,addDays(today,-1));
+          if(next) newPrefix=datePrefix(next);
+        }
+      } else if(updated.recurrence==="aylik"&&days.length>0){
+        const todayD2 = new Date(today+"T00:00:00");
+        if(days.map(Number).includes(todayD2.getDate())) newPrefix=datePrefix(today);
+        else {
+          const next=getNextScheduledDate(updated,addDays(today,-1));
+          if(next) newPrefix=datePrefix(next);
+        }
+      } else if(updated.recurrence==="gunluk"){
+        newPrefix=datePrefix(today);
+      }
+      if(newPrefix){
+        const rawTitle = /^\d{6} /.test(updated.title)?updated.title.slice(7):updated.title;
+        updated.title = newPrefix+" "+rawTitle;
+      }
+      return updated;
+    }));
+  };
 
   const formatTimeLabel = (val) => {
     if(!val||val==="bugun")return"Bugün";
@@ -798,7 +851,7 @@ function Yapilacaklar() {
                             </div>
 
                             {editingTime===task.id&&<TimeEditor value={task.time} onChange={val=>updateTask(task.id,{time:val})} onClose={()=>setEditingTime(null)}/>}
-                            {editingRecurrence===task.id&&<RecurrenceEditor task={task} onChange={changes=>updateTask(task.id,changes)} onClose={()=>setEditingRecurrence(null)}/>}
+                            {editingRecurrence===task.id&&<RecurrenceEditor task={task} onChange={changes=>handleRecurrenceChange(task.id,changes)} onClose={()=>setEditingRecurrence(null)}/>}
                             {editingCategory===task.id&&<CategoryEditor task={task} allCategories={allCategories} onSelect={cat=>updateTask(task.id,{category:cat})} onAddCategory={cat=>setCustomCategories(prev=>[...new Set([...prev,cat])])} onClose={()=>setEditingCategory(null)}/>}
 
                             {/* Alt görevler */}
