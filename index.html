@@ -428,6 +428,12 @@ function CategoryEditor({ task, allCategories, onSelect, onAddCategory, onClose 
   );
 }
 
+// Takvimde o güne özel tarih prefix'i ile başlık göster
+function titleForDate(task, ds) {
+  const raw = /^\d{6} /.test(task.title) ? task.title.slice(7) : task.title;
+  return datePrefix(ds) + " " + raw;
+}
+
 function CalendarDayDetail({ date, tasks, onClose }) {
   const ds = localDateStr(date);
   const dotColor = { bekliyor:"#94a3b8",devamediyor:"#f59e0b",tamamlandi:"#22c55e" };
@@ -445,7 +451,7 @@ function CalendarDayDetail({ date, tasks, onClose }) {
           {dayTasks.map(t=>(
             <div key={t.id} style={{ display:"flex",alignItems:"center",gap:"0.6rem",padding:"0.5rem 0.7rem",background:"#0d0d14",borderRadius:8,border:"1px solid "+(t.overdue?"#ef444433":"#1e293b") }}>
               <div style={{ width:8,height:8,borderRadius:"50%",background:t.overdue?"#ef4444":(dotColor[t.status]||"#94a3b8"),flexShrink:0 }}/>
-              <span style={{ fontSize:"0.82rem",color:t.status==="tamamlandi"?"#475569":"#cbd5e1",textDecoration:t.status==="tamamlandi"?"line-through":"none",flex:1 }}>{t.emoji+" "+t.title}</span>
+              <span style={{ fontSize:"0.82rem",color:t.status==="tamamlandi"?"#475569":"#cbd5e1",textDecoration:t.status==="tamamlandi"?"line-through":"none",flex:1 }}>{t.emoji+" "+titleForDate(t,ds)}</span>
               <span style={{ fontSize:"0.65rem",padding:"1px 7px",borderRadius:99,background:t.overdue?"rgba(239,68,68,0.12)":t.status==="bekliyor"?"rgba(148,163,184,0.12)":t.status==="devamediyor"?"rgba(245,158,11,0.12)":"rgba(34,197,94,0.12)",color:t.overdue?"#ef4444":t.status==="bekliyor"?"#94a3b8":t.status==="devamediyor"?"#f59e0b":"#22c55e" }}>
                 {t.overdue?"Gecikmiş":t.status==="bekliyor"?"Bekliyor":t.status==="devamediyor"?"Devam":"Tamam"}
               </span>
