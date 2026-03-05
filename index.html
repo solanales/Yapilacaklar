@@ -596,6 +596,7 @@ function Yapilacaklar() {
   },[tasks,customCategories,closedTasks,loaded]);
 
   const fbLoadedRef = useRef(false);
+  const isReadingFromFBRef = useRef(false);
 
   // Firebase: syncCode değişince listener kur
   const attachFirebaseListener = (code) => {
@@ -609,6 +610,7 @@ function Yapilacaklar() {
       if (val && val.tasks) {
         const today = localDateStr();
         try {
+          isReadingFromFBRef.current = true;
           const t = (val.tasks||[]).map(t=>processTaskOnDayChange(t,today));
           setTasks(t);
           setCustomCategories(val.customCategories||[]);
@@ -616,7 +618,6 @@ function Yapilacaklar() {
           setSyncStatus("synced");
         } catch(_) { setSyncStatus("error"); }
       } else {
-        // Firebase'de veri yok — mevcut yerel veriyi yükle
         setSyncStatus("synced");
       }
       fbLoadedRef.current = true;
@@ -630,11 +631,12 @@ function Yapilacaklar() {
     return ()=>{ if(fbListenerRef.current)fbListenerRef.current(); };
   },[loaded,syncCode]);
 
-  // Firebase: veri değişince yaz — ilk okuma tamamlandıktan sonra
+  // Firebase'e yaz — ama Firebase'den gelen değişiklikleri geri yazma
   const isSyncingRef = useRef(false);
   useEffect(()=>{
     if(!loaded||!syncCode||!window._fbdb)return;
     if(!fbLoadedRef.current)return;
+    if(isReadingFromFBRef.current){ isReadingFromFBRef.current=false; return; }
     if(isSyncingRef.current)return;
     isSyncingRef.current = true;
     setSyncStatus("syncing");
