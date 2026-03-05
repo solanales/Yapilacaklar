@@ -595,24 +595,28 @@ function Yapilacaklar() {
     try{localStorage.setItem(STORAGE_KEY,JSON.stringify({tasks,customCategories,closedTasks}));}catch(_){}
   },[tasks,customCategories,closedTasks,loaded]);
 
+  const [fbLoaded,setFbLoaded] = useState(false);
+
   // Firebase: syncCode değişince listener kur
   const attachFirebaseListener = (code) => {
     if (!code||!window._fbdb) return;
     if (fbListenerRef.current) fbListenerRef.current();
+    setFbLoaded(false);
     const ref = window._fbdb.ref("data/"+code);
     const handler = ref.on("value", snap=>{
       const val = snap.val();
-      if (!val) return;
-      const today = localDateStr();
-      try {
-        const t = (val.tasks||[]).map(t=>processTaskOnDayChange(t,today));
-        const c = val.customCategories||[];
-        const cl = val.closedTasks||[];
-        setTasks(t);
-        setCustomCategories(c);
-        setClosedTasks(cl);
-        setSyncStatus("synced");
-      } catch(_) { setSyncStatus("error"); }
+      if (val) {
+        const today = localDateStr();
+        try {
+          const t = (val.tasks||[]).map(t=>processTaskOnDayChange(t,today));
+          setTasks(t);
+          setCustomCategories(val.customCategories||[]);
+          setClosedTasks(val.closedTasks||[]);
+          setSyncStatus("synced");
+        } catch(_) { setSyncStatus("error"); }
+      }
+      // İlk okuma tamamlandı — artık yazmaya izin ver
+      setFbLoaded(true);
     }, ()=>setSyncStatus("error"));
     fbListenerRef.current = ()=>ref.off("value",handler);
   };
@@ -623,10 +627,10 @@ function Yapilacaklar() {
     return ()=>{ if(fbListenerRef.current)fbListenerRef.current(); };
   },[loaded,syncCode]);
 
-  // Firebase: veri değişince yükle
+  // Firebase: veri değişince yaz — ama sadece Firebase'den ilk okuma yapıldıktan sonra
   const isSyncingRef = useRef(false);
   useEffect(()=>{
-    if(!loaded||!syncCode||!window._fbdb)return;
+    if(!loaded||!syncCode||!fbLoaded||!window._fbdb)return;
     if(isSyncingRef.current)return;
     isSyncingRef.current = true;
     setSyncStatus("syncing");
@@ -634,7 +638,7 @@ function Yapilacaklar() {
       .then(()=>setSyncStatus("synced"))
       .catch(()=>setSyncStatus("error"))
       .finally(()=>{ isSyncingRef.current=false; });
-  },[tasks,customCategories,closedTasks,loaded,syncCode]);
+  },[tasks,customCategories,closedTasks,loaded,syncCode,fbLoaded]);
 
   const connectSync = (code) => {
     const trimmed = code.trim().toLowerCase().replace(/[^a-z0-9]/g,"");
