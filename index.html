@@ -17,6 +17,21 @@
 </head>
 <body>
   <div id="root"></div>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyDSv-_i2X_KjRwRO_vRIJLqjr-ENb4CLpA",
+      authDomain: "liste-84ee2.firebaseapp.com",
+      databaseURL: "https://liste-84ee2-default-rtdb.firebaseio.com",
+      projectId: "liste-84ee2",
+      storageBucket: "liste-84ee2.firebasestorage.app",
+      messagingSenderId: "124239715376",
+      appId: "1:124239715376:web:cfeb03d2317e44d9e821f5"
+    };
+    firebase.initializeApp(firebaseConfig);
+    window._fbdb = firebase.database();
+  </script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -543,6 +558,11 @@ function Yapilacaklar() {
   const [newTask,setNewTask] = useState({title:"",detail:"",category:"Kişisel",emoji:"📌",priority:"orta",time:"bugun"});
   const [loaded,setLoaded] = useState(false);
   const [soundOn,setSoundOn] = useState(()=>{ try{return localStorage.getItem("sound-enabled")!=="false";}catch(_){return true;} });
+  const [syncCode,setSyncCode] = useState(()=>{ try{return localStorage.getItem("sync-code")||"";}catch(_){return "";} });
+  const [syncInput,setSyncInput] = useState("");
+  const [showSyncPanel,setShowSyncPanel] = useState(false);
+  const [syncStatus,setSyncStatus] = useState("idle"); // idle | syncing | synced | error
+  const fbListenerRef = useRef(null);
 
   const s = {
     complete:()=>soundOn&&sound.complete(), progress:()=>soundOn&&sound.progress(),
@@ -574,6 +594,68 @@ function Yapilacaklar() {
     if (!loaded) return;
     try{localStorage.setItem(STORAGE_KEY,JSON.stringify({tasks,customCategories,closedTasks}));}catch(_){}
   },[tasks,customCategories,closedTasks,loaded]);
+
+  // Firebase: syncCode değişince listener kur
+  const attachFirebaseListener = (code) => {
+    if (!code||!window._fbdb) return;
+    if (fbListenerRef.current) fbListenerRef.current();
+    const ref = window._fbdb.ref("data/"+code);
+    const handler = ref.on("value", snap=>{
+      const val = snap.val();
+      if (!val) return;
+      const today = localDateStr();
+      try {
+        const t = (val.tasks||[]).map(t=>processTaskOnDayChange(t,today));
+        const c = val.customCategories||[];
+        const cl = val.closedTasks||[];
+        setTasks(t);
+        setCustomCategories(c);
+        setClosedTasks(cl);
+        setSyncStatus("synced");
+      } catch(_) { setSyncStatus("error"); }
+    }, ()=>setSyncStatus("error"));
+    fbListenerRef.current = ()=>ref.off("value",handler);
+  };
+
+  useEffect(()=>{
+    if(!loaded||!syncCode)return;
+    attachFirebaseListener(syncCode);
+    return ()=>{ if(fbListenerRef.current)fbListenerRef.current(); };
+  },[loaded,syncCode]);
+
+  // Firebase: veri değişince yükle
+  const isSyncingRef = useRef(false);
+  useEffect(()=>{
+    if(!loaded||!syncCode||!window._fbdb)return;
+    if(isSyncingRef.current)return;
+    isSyncingRef.current = true;
+    setSyncStatus("syncing");
+    window._fbdb.ref("data/"+syncCode).set({tasks,customCategories,closedTasks})
+      .then(()=>setSyncStatus("synced"))
+      .catch(()=>setSyncStatus("error"))
+      .finally(()=>{ isSyncingRef.current=false; });
+  },[tasks,customCategories,closedTasks,loaded,syncCode]);
+
+  const connectSync = (code) => {
+    const trimmed = code.trim().toLowerCase().replace(/[^a-z0-9]/g,"");
+    if(!trimmed)return;
+    try{localStorage.setItem("sync-code",trimmed);}catch(_){}
+    setSyncCode(trimmed);
+    setShowSyncPanel(false);
+    setSyncStatus("syncing");
+  };
+
+  const generateCode = () => {
+    const chars="abcdefghijklmnopqrstuvwxyz0123456789";
+    return Array.from({length:6},()=>chars[Math.floor(Math.random()*chars.length)]).join("");
+  };
+
+  const disconnectSync = () => {
+    if(fbListenerRef.current)fbListenerRef.current();
+    try{localStorage.removeItem("sync-code");}catch(_){}
+    setSyncCode("");
+    setSyncStatus("idle");
+  };
 
   // Gün değişimini runtime'da tespit et (Seçenek B)
   useEffect(()=>{
@@ -782,7 +864,42 @@ function Yapilacaklar() {
             <button onClick={()=>setSoundOn(o=>!o)} style={{ background:"transparent",border:"none",cursor:"pointer",fontSize:"1.1rem",opacity:soundOn?1:0.35,padding:0 }}>
               {soundOn?"🔊":"🔇"}
             </button>
+            <button onClick={()=>setShowSyncPanel(o=>!o)} title="Senkronizasyon" style={{ background:"transparent",border:"none",cursor:"pointer",fontSize:"1.1rem",padding:0,opacity:syncCode?1:0.4 }}>
+              {syncStatus==="syncing"?"⏳":syncStatus==="synced"?"☁️":syncStatus==="error"?"⚠️":"☁️"}
+            </button>
           </div>
+          {showSyncPanel&&(
+            <div style={{ marginTop:"0.75rem",background:"#13131f",border:"1px solid #334155",borderRadius:12,padding:"1rem",fontSize:"0.78rem" }}>
+              {syncCode?(
+                <div style={{ display:"flex",flexDirection:"column",gap:"0.5rem" }}>
+                  <div style={{ color:"#64748b" }}>Bağlı Sync Kodu:</div>
+                  <div style={{ display:"flex",alignItems:"center",gap:"0.5rem" }}>
+                    <span style={{ fontFamily:"monospace",fontSize:"1.1rem",color:"#818cf8",letterSpacing:"0.15em",fontWeight:"bold" }}>{syncCode}</span>
+                    <button onClick={()=>{try{navigator.clipboard.writeText(syncCode);}catch(_){}}} style={{ background:"#1e293b",border:"none",borderRadius:6,padding:"3px 8px",color:"#94a3b8",cursor:"pointer",fontSize:"0.7rem" }}>Kopyala</button>
+                  </div>
+                  <div style={{ color:"#475569",fontSize:"0.7rem" }}>Bu kodu diğer cihazında girerek verilerini senkronize edebilirsin.</div>
+                  <div style={{ display:"flex",gap:"0.4rem",alignItems:"center" }}>
+                    <span style={{ fontSize:"0.7rem",color:syncStatus==="synced"?"#22c55e":syncStatus==="syncing"?"#f59e0b":"#ef4444" }}>
+                      {syncStatus==="synced"?"✓ Senkronize":syncStatus==="syncing"?"⏳ Senkronize ediliyor...":"⚠ Bağlantı hatası"}
+                    </span>
+                  </div>
+                  <button onClick={disconnectSync} style={{ background:"transparent",border:"1px solid #334155",borderRadius:6,padding:"4px 10px",color:"#64748b",cursor:"pointer",fontSize:"0.72rem",alignSelf:"flex-start" }}>Bağlantıyı Kes</button>
+                </div>
+              ):(
+                <div style={{ display:"flex",flexDirection:"column",gap:"0.6rem" }}>
+                  <div style={{ color:"#94a3b8" }}>Cihazlar arası otomatik senkronizasyon</div>
+                  <div style={{ display:"flex",gap:"0.4rem" }}>
+                    <button onClick={()=>{ const c=generateCode(); setSyncInput(c); }} style={{ background:"#1e293b",border:"none",borderRadius:6,padding:"5px 10px",color:"#818cf8",cursor:"pointer",fontSize:"0.72rem" }}>Yeni Kod Oluştur</button>
+                  </div>
+                  <div style={{ display:"flex",gap:"0.4rem",alignItems:"center" }}>
+                    <input value={syncInput} onChange={e=>setSyncInput(e.target.value)} placeholder="Sync kodu gir..." style={{ flex:1,background:"#1e293b",border:"1px solid #334155",borderRadius:6,padding:"5px 8px",color:"#e2e8f0",fontSize:"0.78rem",outline:"none",fontFamily:"monospace" }}/>
+                    <button onClick={()=>connectSync(syncInput)} style={{ background:"#818cf8",border:"none",borderRadius:6,padding:"5px 12px",color:"#0d0d14",cursor:"pointer",fontSize:"0.78rem",fontWeight:"bold" }}>Bağlan</button>
+                  </div>
+                  <div style={{ color:"#475569",fontSize:"0.7rem" }}>Yeni kod oluşturup diğer cihazında aynı kodu girerek senkronize edebilirsin.</div>
+                </div>
+              )}
+            </div>
+          )}
           {tasks.length>0&&(
             <div style={{ marginTop:"1rem" }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"0.5rem" }}>
