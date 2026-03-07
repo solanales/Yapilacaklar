@@ -613,6 +613,8 @@ function Yapilacaklar() {
   const writeTimerRef = useRef(null);
   const lastWriteTimeRef = useRef(0);
 
+  const [fbFirstLoaded, setFbFirstLoaded] = useState(false);
+
   const attachFirebaseListener = (code) => {
     if (!code||!window._fbdb) return;
     if (fbListenerRef.current) fbListenerRef.current();
@@ -624,7 +626,6 @@ function Yapilacaklar() {
       const val = snap.val();
       if (val && Array.isArray(val.tasks)) {
         const incomingTime = val._ts || 0;
-        // Sadece kendi son yazma zamanımızdan daha yeni ise uygula
         if(incomingTime > lastWriteTimeRef.current){
           const today = localDateStr();
           try {
@@ -642,7 +643,10 @@ function Yapilacaklar() {
       } else {
         setSyncStatus("synced");
       }
-      fbLoadedRef.current = true;
+      if(!fbLoadedRef.current){
+        fbLoadedRef.current = true;
+        setFbFirstLoaded(f=>!f); // write effect'i tetikle
+      }
     }, ()=>setSyncStatus("error"));
     fbListenerRef.current = ()=>ref.off("value",handler);
   };
@@ -653,11 +657,13 @@ function Yapilacaklar() {
     return ()=>{ if(fbListenerRef.current)fbListenerRef.current(); };
   },[loaded,syncCode]);
 
-  // Firebase'e yaz — debounce 500ms
+  // Firebase'e yaz — debounce 500ms, ilk FB okuması tamamlanana kadar beklenir
   useEffect(()=>{
     if(!loaded||!syncCode||!window._fbdb)return;
     if(writeTimerRef.current) clearTimeout(writeTimerRef.current);
     writeTimerRef.current = setTimeout(()=>{
+      // İlk Firebase okuması henüz tamamlanmadıysa yazma
+      if(!fbLoadedRef.current) return;
       const ts = Date.now();
       lastWriteTimeRef.current = ts + 3000;
       setSyncStatus("syncing");
@@ -666,7 +672,7 @@ function Yapilacaklar() {
         .catch(()=>{ setSyncStatus("error"); lastWriteTimeRef.current=0; });
     },500);
     return ()=>{ if(writeTimerRef.current) clearTimeout(writeTimerRef.current); };
-  },[tasks,customCategories,closedTasks,bgColor,cardColor,loaded,syncCode]);
+  },[tasks,customCategories,closedTasks,bgColor,cardColor,loaded,syncCode,fbFirstLoaded]);
 
   const connectSync = (code) => {
     const trimmed = code.trim().toLowerCase().replace(/[^a-z0-9]/g,"");
