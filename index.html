@@ -612,7 +612,6 @@ function Yapilacaklar() {
   const fbLoadedRef = useRef(false);
   const writeTimerRef = useRef(null);
   const lastWriteTimeRef = useRef(0);
-  const isSyncingRef = useRef(false);
 
   const attachFirebaseListener = (code) => {
     if (!code||!window._fbdb) return;
@@ -659,15 +658,12 @@ function Yapilacaklar() {
     if(!loaded||!syncCode||!window._fbdb)return;
     if(writeTimerRef.current) clearTimeout(writeTimerRef.current);
     writeTimerRef.current = setTimeout(()=>{
-      if(isSyncingRef.current)return;
-      isSyncingRef.current = true;
       const ts = Date.now();
       lastWriteTimeRef.current = ts + 3000;
       setSyncStatus("syncing");
       window._fbdb.ref("data/"+syncCode).set({tasks,customCategories,closedTasks,bgColor,cardColor,_ts:ts})
-        .then(()=>{ setSyncStatus("synced"); })
-        .catch(()=>{ setSyncStatus("error"); lastWriteTimeRef.current=0; })
-        .finally(()=>{ isSyncingRef.current=false; });
+        .then(()=>setSyncStatus("synced"))
+        .catch(()=>{ setSyncStatus("error"); lastWriteTimeRef.current=0; });
     },500);
     return ()=>{ if(writeTimerRef.current) clearTimeout(writeTimerRef.current); };
   },[tasks,customCategories,closedTasks,bgColor,cardColor,loaded,syncCode]);
