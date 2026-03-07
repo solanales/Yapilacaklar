@@ -438,7 +438,7 @@ function CalendarDayDetail({ date, tasks, onClose, onCloseTask }) {
                 {t.overdue?"Gecikmiş":t.status==="bekliyor"?"Bekliyor":t.status==="devamediyor"?"Devam":"Tamam"}
               </span>
               {t.status==="tamamlandi"&&onCloseTask&&(
-                <button onClick={()=>onCloseTask(t)} title="Kapat" style={{ background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:"0.85rem",lineHeight:1,padding:"0 2px" }}>✕</button>
+                <button onClick={()=>onCloseTask(t.id)} title="Kapat" style={{ background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:"0.85rem",lineHeight:1,padding:"0 2px" }}>✕</button>
               )}
             </div>
           ))}
