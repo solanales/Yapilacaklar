@@ -31,6 +31,7 @@
     };
     firebase.initializeApp(firebaseConfig);
     window._fbdb = firebase.database();
+    console.log("Firebase initialized:", window._fbdb ? "OK" : "FAILED");
   </script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -600,11 +601,12 @@ function Yapilacaklar() {
 
   // Firebase: syncCode değişince listener kur
   const attachFirebaseListener = (code) => {
-    if (!code||!window._fbdb) return;
+    if (!code||!window._fbdb) { console.log("FB: no code or no _fbdb", code, window._fbdb); return; }
     if (fbListenerRef.current) fbListenerRef.current();
     fbLoadedRef.current = false;
     lastFBDataRef.current = null;
     setSyncStatus("syncing");
+    console.log("FB: attaching listener for code", code);
     const ref = window._fbdb.ref("data/"+code);
     const handler = ref.on("value", snap=>{
       const val = snap.val();
