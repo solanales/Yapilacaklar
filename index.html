@@ -596,13 +596,14 @@ function Yapilacaklar() {
   },[tasks,customCategories,closedTasks,loaded]);
 
   const fbLoadedRef = useRef(false);
-  const isReadingFromFBRef = useRef(false);
+  const lastFBDataRef = useRef(null); // Firebase'den gelen son veriyi sakla
 
   // Firebase: syncCode değişince listener kur
   const attachFirebaseListener = (code) => {
     if (!code||!window._fbdb) return;
     if (fbListenerRef.current) fbListenerRef.current();
     fbLoadedRef.current = false;
+    lastFBDataRef.current = null;
     setSyncStatus("syncing");
     const ref = window._fbdb.ref("data/"+code);
     const handler = ref.on("value", snap=>{
@@ -610,11 +611,14 @@ function Yapilacaklar() {
       if (val && val.tasks) {
         const today = localDateStr();
         try {
-          isReadingFromFBRef.current = true;
           const t = (val.tasks||[]).map(t=>processTaskOnDayChange(t,today));
+          const c = val.customCategories||[];
+          const cl = val.closedTasks||[];
+          // Gelen veriyi sakla — write effect bunu görünce yazmayacak
+          lastFBDataRef.current = JSON.stringify({tasks:t,customCategories:c,closedTasks:cl});
           setTasks(t);
-          setCustomCategories(val.customCategories||[]);
-          setClosedTasks(val.closedTasks||[]);
+          setCustomCategories(c);
+          setClosedTasks(cl);
           setSyncStatus("synced");
         } catch(_) { setSyncStatus("error"); }
       } else {
@@ -631,12 +635,14 @@ function Yapilacaklar() {
     return ()=>{ if(fbListenerRef.current)fbListenerRef.current(); };
   },[loaded,syncCode]);
 
-  // Firebase'e yaz — ama Firebase'den gelen değişiklikleri geri yazma
+  // Firebase'e yaz — sadece kullanıcı değişikliği yapınca
   const isSyncingRef = useRef(false);
   useEffect(()=>{
-    if(!loaded||!syncCode||!window._fbdb)return;
-    if(!fbLoadedRef.current)return;
-    if(isReadingFromFBRef.current){ isReadingFromFBRef.current=false; return; }
+    if(!loaded||!syncCode||!window._fbdb||!fbLoadedRef.current)return;
+    const current = JSON.stringify({tasks,customCategories,closedTasks});
+    // Firebase'den gelen veriyle aynıysa yazma
+    if(lastFBDataRef.current===current)return;
+    lastFBDataRef.current = null;
     if(isSyncingRef.current)return;
     isSyncingRef.current = true;
     setSyncStatus("syncing");
