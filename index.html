@@ -225,7 +225,7 @@ function processTaskOnDayChange(t, today) {
   };
 
   if (!task.lastResetDate) return { ...task, lastResetDate: today };
-  if (task.postponedUntil && task.postponedUntil <= today) task = { ...task, postponedUntil: null };
+  if (task.postponedUntil && task.postponedUntil <= today) task = { ...task, postponedUntil: null, originalTime: null, originalTitle: null };
   if (task.lastResetDate >= today) return task;
 
   const scheduledDays = normalizeDays(task.recurrenceDays);
@@ -492,8 +492,10 @@ function TaskDetailSheet({ task, onClose, cycleStatus, updateTask, handleOtele, 
                   </div>
                   <div style={{ display:"flex",gap:"0.3rem",flexShrink:0 }}>
                     {task.status!=="tamamlandi"&&(
-                      <button onClick={()=>handleOtele(task)} title="Ötele" style={{ background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:"0.72rem",padding:"0 3px",lineHeight:1 }}
-                        onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color="#475569"}>⏭</button>
+                      <button onClick={()=>handleOtele(task)} title={task.postponedUntil?"Ertelemeyi İptal Et":"Ertele"}
+                        style={{ background:"transparent",border:"none",color:task.postponedUntil?"#818cf8":"#475569",cursor:"pointer",fontSize:"0.72rem",padding:"0 3px",lineHeight:1 }}
+                        onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color=task.postponedUntil?"#818cf8":"#475569"}>
+                        {task.postponedUntil?"↩":"⏭"}</button>
                     )}
                     <button onClick={()=>{ closeTask(task.id); onClose(); }} title="Kapat" style={{ background:"transparent",border:"none",color:"#334155",cursor:"pointer",fontSize:"0.8rem",padding:"0 2px",lineHeight:1 }}
                       onMouseEnter={e=>e.target.style.color="#f59e0b"} onMouseLeave={e=>e.target.style.color="#334155"}>✕</button>
@@ -657,8 +659,12 @@ function CalendarDayDetail({ date, tasks, onClose, onCloseTask, onPostponeTask, 
                 {t.overdue?"Gecikmiş":statusForDate==="bekliyor"?"Bekliyor":statusForDate==="devamediyor"?"Devam":"Tamam"}
               </span>
               {statusForDate!=="tamamlandi"&&onPostponeTask&&(
-                <button onClick={()=>onPostponeTask(t)} title="Ertele" style={{ background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:"0.8rem",lineHeight:1,padding:"0 2px" }}
-                  onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color="#475569"}>⏭</button>
+                <button onClick={()=>onPostponeTask(t.postponedUntil===ds?{...t,postponedUntil:null,originalTime:null,originalTitle:null}:t)}
+                  title={t.postponedUntil&&t.postponedUntil!==ds?"Ertelemeyi İptal Et":"Ertele"}
+                  style={{ background:"transparent",border:"none",color:t.postponedUntil&&t.postponedUntil!==ds?"#818cf8":"#475569",cursor:"pointer",fontSize:"0.8rem",lineHeight:1,padding:"0 2px" }}
+                  onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color=t.postponedUntil&&t.postponedUntil!==ds?"#818cf8":"#475569"}>
+                  {t.postponedUntil&&t.postponedUntil!==ds?"↩":"⏭"}
+                </button>
               )}
               {onCloseTask&&(
                 <button onClick={()=>onCloseTask(t.id)} title="Kapat" style={{ background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:"0.85rem",lineHeight:1,padding:"0 2px" }}
@@ -983,18 +989,30 @@ function Yapilacaklar() {
   };
 
   const handleOtele = (task) => {
-    s.otele();
     const today = localDateStr();
     const tomorrow = addDays(today,1);
+    // Zaten ertelenmiş → iptal et, orijinal tarihe dön
+    if (task.postponedUntil) {
+      s.reset();
+      const orig = task.originalTime || today;
+      const origTitle = task.originalTitle || task.title;
+      updateTask(task.id, {postponedUntil:null, time:orig, title:origTitle, originalTime:null, originalTitle:null});
+      return;
+    }
+    s.otele();
     if (task.recurrence==="gunluk") { closeTask(task.id); return; }
     if (task.recurrence==="tek-seferlik") {
-      updateTask(task.id,{postponedUntil:tomorrow,overdue:false,time:tomorrow,title:updateTitlePrefix(task.title,datePrefix(tomorrow))});
+      updateTask(task.id,{postponedUntil:tomorrow,overdue:false,time:tomorrow,
+        originalTime:task.time, originalTitle:task.title,
+        title:updateTitlePrefix(task.title,datePrefix(tomorrow))});
       return;
     }
     if (task.recurrence==="haftalik"||task.recurrence==="aylik") {
       const next=getNextScheduledDate(task,today);
       if(!next||next===tomorrow) { closeTask(task.id); }
-      else { updateTask(task.id,{postponedUntil:tomorrow,overdue:false,title:updateTitlePrefix(task.title,datePrefix(tomorrow))}); }
+      else { updateTask(task.id,{postponedUntil:tomorrow,overdue:false,
+        originalTitle:task.title,
+        title:updateTitlePrefix(task.title,datePrefix(tomorrow))}); }
     }
   };
 
@@ -1401,9 +1419,10 @@ function Yapilacaklar() {
                                 </div>
                                 <div style={{ display:"flex",gap:"0.3rem",flexShrink:0 }}>
                                   {task.status!=="tamamlandi"&&(
-                                    <button onClick={()=>handleOtele(task)} title="Ötele" style={{ background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:"0.72rem",padding:"0 3px",lineHeight:1 }}
-                                      onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color="#475569"}>
-                                      ⏭
+                                    <button onClick={()=>handleOtele(task)} title={task.postponedUntil?"Ertelemeyi İptal Et":"Ertele"}
+                                      style={{ background:"transparent",border:"none",color:task.postponedUntil?"#818cf8":"#475569",cursor:"pointer",fontSize:"0.72rem",padding:"0 3px",lineHeight:1 }}
+                                      onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color=task.postponedUntil?"#818cf8":"#475569"}>
+                                      {task.postponedUntil?"↩":"⏭"}
                                     </button>
                                   )}
                                   <button onClick={()=>closeTask(task.id)} title="Görevi kapat" style={{ background:"transparent",border:"none",color:"#334155",cursor:"pointer",fontSize:"0.8rem",padding:"0 2px",lineHeight:1 }}
