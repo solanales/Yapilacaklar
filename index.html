@@ -493,10 +493,10 @@ function TaskDetailSheet({ task, onClose, cycleStatus, updateTask, handleOtele, 
                   <div style={{ display:"flex",gap:"0.3rem",flexShrink:0 }}>
                     {task.status!=="tamamlandi"&&(
                       <button onClick={()=>handleOtele(task)}
-                        title={task.postponedUntil&&(!viewDs||viewDs!==task.postponedUntil)?"Ertelemeyi İptal Et":"Ertele"}
-                        style={{ background:"transparent",border:"none",color:task.postponedUntil&&(!viewDs||viewDs!==task.postponedUntil)?"#818cf8":"#475569",cursor:"pointer",fontSize:"0.72rem",padding:"0 3px",lineHeight:1 }}
-                        onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color=task.postponedUntil&&(!viewDs||viewDs!==task.postponedUntil)?"#818cf8":"#475569"}>
-                        {task.postponedUntil&&(!viewDs||viewDs!==task.postponedUntil)?"↩":"⏭"}</button>
+                        title={task.postponedUntil?"Ertelemeyi İptal Et":"Ertele"}
+                        style={{ background:"transparent",border:"none",color:task.postponedUntil?"#818cf8":"#475569",cursor:"pointer",fontSize:"0.72rem",padding:"0 3px",lineHeight:1 }}
+                        onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color=task.postponedUntil?"#818cf8":"#475569"}>
+                        {task.postponedUntil?"↩":"⏭"}</button>
                     )}
                     <button onClick={()=>{ closeTask(task.id); onClose(); }} title="Kapat" style={{ background:"transparent",border:"none",color:"#334155",cursor:"pointer",fontSize:"0.8rem",padding:"0 2px",lineHeight:1 }}
                       onMouseEnter={e=>e.target.style.color="#f59e0b"} onMouseLeave={e=>e.target.style.color="#334155"}>✕</button>
@@ -660,11 +660,11 @@ function CalendarDayDetail({ date, tasks, onClose, onCloseTask, onPostponeTask, 
                 {t.overdue?"Gecikmiş":statusForDate==="bekliyor"?"Bekliyor":statusForDate==="devamediyor"?"Devam":"Tamam"}
               </span>
               {statusForDate!=="tamamlandi"&&onPostponeTask&&(
-                <button onClick={()=>onPostponeTask(t.postponedUntil===ds?{...t,postponedUntil:null,originalTime:null,originalTitle:null}:t)}
-                  title={t.postponedUntil&&t.postponedUntil!==ds?"Ertelemeyi İptal Et":"Ertele"}
-                  style={{ background:"transparent",border:"none",color:t.postponedUntil&&t.postponedUntil!==ds?"#818cf8":"#475569",cursor:"pointer",fontSize:"0.8rem",lineHeight:1,padding:"0 2px" }}
-                  onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color=t.postponedUntil&&t.postponedUntil!==ds?"#818cf8":"#475569"}>
-                  {t.postponedUntil&&t.postponedUntil!==ds?"↩":"⏭"}
+                <button onClick={()=>onPostponeTask(t)}
+                  title={t.postponedUntil?"Ertelemeyi İptal Et":"Ertele"}
+                  style={{ background:"transparent",border:"none",color:t.postponedUntil?"#818cf8":"#475569",cursor:"pointer",fontSize:"0.8rem",lineHeight:1,padding:"0 2px" }}
+                  onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color=t.postponedUntil?"#818cf8":"#475569"}>
+                  {t.postponedUntil?"↩":"⏭"}
                 </button>
               )}
               {onCloseTask&&(
