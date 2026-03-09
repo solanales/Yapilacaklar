@@ -103,34 +103,11 @@ function resetTask(task, today) {
 }
 
 // Bir görevin belirli bir tarihte planlanmış olup olmadığı (takvim için)
+// Artık tüm görevler bağımsız tek-seferlik gibi davranıyor
 function taskMatchesDate(t, ds) {
   const todayStr = localDateStr();
-
-  // Ertelenmiş görev: sadece ertelenen tarihte göster
-  if (t.postponedUntil) {
-    return ds === t.postponedUntil;
-  }
-
-  // Gecikmiş görev: bugün ve geçmişte göster
+  if (t.postponedUntil) return ds === t.postponedUntil;
   if (t.overdue && ds <= todayStr) return true;
-
-  if (t.recurrence === "gunluk") return true;
-
-  if (t.recurrence === "haftalik") {
-    const days = normalizeDays(t.recurrenceDays);
-    if(!days.length) return false;
-    const d = new Date(ds+"T00:00:00");
-    const wd = d.getDay();
-    return days.includes(WEEKDAYS[wd===0?6:wd-1]);
-  }
-
-  if (t.recurrence === "aylik") {
-    const days = normalizeDays(t.recurrenceDays);
-    if(!days.length) return false;
-    return days.map(Number).includes(new Date(ds+"T00:00:00").getDate());
-  }
-
-  // tek-seferlik
   const tomStr = addDays(todayStr, 1);
   if (t.time==="bugun") return ds===todayStr;
   if (t.time==="yarin") return ds===tomStr;
@@ -211,11 +188,60 @@ function getFirstScheduledDateOnOrAfter(task, fromDate) {
   return null;
 }
 
-// Gün değişiminde görev işleme
-function processTaskOnDayChange(t, today) {
-  const todayDate = new Date(today+"T00:00:00");
-  const todayWD = WEEKDAYS[todayDate.getDay()===0?6:todayDate.getDay()-1];
+// Bir tarihte görevin planlanmış olup olmadığı (seri üretimi için)
+function taskOccursOnDate(config, ds) {
+  const d = new Date(ds+"T00:00:00");
+  if (config.recurrence === "gunluk") return true;
+  if (config.recurrence === "haftalik") {
+    const days = normalizeDays(config.recurrenceDays);
+    const wd = d.getDay();
+    return days.includes(WEEKDAYS[wd===0?6:wd-1]);
+  }
+  if (config.recurrence === "aylik") {
+    const days = normalizeDays(config.recurrenceDays).map(Number);
+    return days.includes(d.getDate());
+  }
+  return false;
+}
 
+// Tekrarlayan görevler için bağımsız görevler üret (365 gün ilerisi)
+function generateSeriesTasks(config, rawTitle, startDate, seriesId) {
+  const tasks = [];
+  const endDate = addDays(startDate, 365);
+  let cur = startDate;
+  while (cur <= endDate) {
+    if (taskOccursOnDate(config, cur)) {
+      const prefix = datePrefix(cur);
+      tasks.push({
+        id: Date.now() + "_" + cur + "_" + Math.random().toString(36).slice(2,6),
+        seriesId,
+        rawTitle,
+        title: prefix + " " + rawTitle,
+        time: cur,
+        category: config.category,
+        emoji: config.emoji,
+        priority: config.priority,
+        detail: config.detail,
+        recurrence: "tek-seferlik",
+        recurrenceDays: [],
+        subtasks: [],
+        completedDates: [],
+        status: "bekliyor",
+        note: "",
+        startedAt: null,
+        lastResetDate: startDate,
+        overdue: false,
+        postponedUntil: null,
+        originalTime: null,
+      });
+    }
+    cur = addDays(cur, 1);
+  }
+  return tasks;
+}
+
+// Gün değişiminde görev işleme
+function processTaskOnDayChange(t, today, allTasks) {
   // Format migration
   let task = {
     ...t,
@@ -225,63 +251,31 @@ function processTaskOnDayChange(t, today) {
   };
 
   if (!task.lastResetDate) return { ...task, lastResetDate: today };
-  if (task.postponedUntil && task.postponedUntil <= today) task = { ...task, postponedUntil: null, originalTime: null, originalTitle: null };
+  if (task.postponedUntil && task.postponedUntil <= today) {
+    task = { ...task, postponedUntil: null, originalTime: null };
+  }
   if (task.lastResetDate >= today) return task;
 
-  const scheduledDays = normalizeDays(task.recurrenceDays);
+  // Tamamlanmış → sadece tarihi güncelle
+  if (task.status === "tamamlandi") return { ...task, lastResetDate: today };
 
   const tomorrow = addDays(today, 1);
 
-  if (task.recurrence === "gunluk") {
-    if (task.status !== "tamamlandi") {
-      // Yarın zaten görünecek → sıfırla; completedDates temizle
-      return resetTask({...task, completedDates:[]}, today);
+  if (task.seriesId) {
+    // Seri görevi: yarın aynı seriden görev var mı?
+    const hasSiblingTomorrow = (allTasks || []).some(s =>
+      s.id !== task.id && s.seriesId === task.seriesId &&
+      (s.time === tomorrow || s.postponedUntil === tomorrow)
+    );
+    if (hasSiblingTomorrow) {
+      return { ...task, _delete: true }; // silinecek
+    } else {
+      return { ...task, postponedUntil: tomorrow, overdue: false, originalTime: task.postponedUntil || task.time, lastResetDate: today };
     }
-    return resetTask(task, today);
   }
 
-  if (task.recurrence === "haftalik") {
-    const showsToday = scheduledDays.includes(todayWD);
-    const tomorrowDate = new Date(tomorrow+"T00:00:00");
-    const tomorrowWD = WEEKDAYS[tomorrowDate.getDay()===0?6:tomorrowDate.getDay()-1];
-    const showsTomorrow = scheduledDays.includes(tomorrowWD);
-    if (showsToday) {
-      if (task.status !== "tamamlandi") {
-        if (showsTomorrow) {
-          // Yarın zaten görünecek → sıfırla
-          return resetTask({...task, completedDates:[]}, today);
-        } else {
-          // Yarın görünmeyecek → ertele
-          return { ...task, postponedUntil: tomorrow, overdue: false, originalTime: task.time || today, lastResetDate: today };
-        }
-      }
-      return resetTask(task, today);
-    }
-    return { ...task, lastResetDate: today };
-  }
-
-  if (task.recurrence === "aylik") {
-    const showsToday = scheduledDays.map(Number).includes(todayDate.getDate());
-    const tomorrowDate = new Date(tomorrow+"T00:00:00");
-    const showsTomorrow = scheduledDays.map(Number).includes(tomorrowDate.getDate());
-    if (showsToday) {
-      if (task.status !== "tamamlandi") {
-        if (showsTomorrow) {
-          return resetTask({...task, completedDates:[]}, today);
-        } else {
-          return { ...task, postponedUntil: tomorrow, overdue: false, originalTime: task.time || today, lastResetDate: today };
-        }
-      }
-      return resetTask(task, today);
-    }
-    return { ...task, lastResetDate: today };
-  }
-
-  // tek-seferlik
-  if (task.status !== "tamamlandi" && !task.postponedUntil) {
-    return { ...task, overdue: true, lastResetDate: today };
-  }
-  return { ...task, lastResetDate: today };
+  // Tek-seferlik (seri olmayan) → gecikmiş
+  return { ...task, overdue: true, lastResetDate: today };
 }
 
 function formatElapsed(isoString) {
@@ -853,10 +847,8 @@ function Yapilacaklar() {
         const storedCats = Array.isArray(stored)?[]:(stored.customCategories||[]);
         const storedClosed = Array.isArray(stored)?[]:(stored.closedTasks||[]);
         const today = localDateStr();
-        const processed = storedTasks.map(t=>processTaskOnDayChange({
-          ...t,
-          completedDates: Array.isArray(t.completedDates)?t.completedDates:[]
-        },today));
+        const rawTasks = storedTasks.map(t=>({...t, completedDates: Array.isArray(t.completedDates)?t.completedDates:[]}));
+        const processed = rawTasks.map(t=>processTaskOnDayChange(t,today,rawTasks)).filter(t=>!t._delete);
         if (processed.length>0) setTasks(processed);
         if (storedCats.length>0) setCustomCategories(storedCats);
         if (storedClosed.length>0) setClosedTasks(storedClosed);
@@ -890,10 +882,8 @@ function Yapilacaklar() {
         if(incomingTime > lastWriteTimeRef.current){
           const today = localDateStr();
           try {
-            const t = (val.tasks||[]).map(t=>processTaskOnDayChange({
-              subtasks:[],recurrenceDays:[],overdue:false,postponedUntil:null,note:"",...t,
-              completedDates: Array.isArray(t.completedDates) ? t.completedDates : []
-            },today));
+            const rawFbTasks = (val.tasks||[]).map(t=>({subtasks:[],recurrenceDays:[],overdue:false,postponedUntil:null,note:"",...t, completedDates: Array.isArray(t.completedDates)?t.completedDates:[]}));
+            const t = rawFbTasks.map(t=>processTaskOnDayChange(t,today,rawFbTasks)).filter(t=>!t._delete);
             setTasks(t);
             setCustomCategories(val.customCategories||[]);
             setClosedTasks(val.closedTasks||[]);
@@ -963,9 +953,10 @@ function Yapilacaklar() {
     const interval = setInterval(()=>{
       const today = localDateStr();
       setTasks(prev=>{
-        const processed=prev.map(t=>processTaskOnDayChange(t,today));
-        const changed=processed.some((t,i)=>t.status!==prev[i].status||t.overdue!==prev[i].overdue||t.lastResetDate!==prev[i].lastResetDate||t.title!==prev[i].title);
-        return changed?processed:prev;
+        const processed=prev.map(t=>processTaskOnDayChange(t,today,prev));
+        const filtered=processed.filter(t=>!t._delete);
+        const changed=filtered.length!==prev.length||filtered.some((t,i)=>t.status!==prev[i]?.status||t.overdue!==prev[i]?.overdue||t.lastResetDate!==prev[i]?.lastResetDate);
+        return changed?filtered:prev;
       });
     }, 30000);
     return ()=>clearInterval(interval);
@@ -1025,14 +1016,21 @@ function Yapilacaklar() {
       return;
     }
     s.otele();
-    if (task.recurrence==="gunluk") { closeTask(task.id); return; }
-    if (task.recurrence==="tek-seferlik") {
-      updateTask(task.id,{postponedUntil:tomorrow,overdue:false,time:tomorrow,originalTime:task.time});
+    // Seri görevi: yarın sibling var mı kontrol et
+    if (task.seriesId) {
+      const hasSiblingTomorrow = tasks.some(s =>
+        s.id !== task.id && s.seriesId === task.seriesId &&
+        (s.time === tomorrow || s.postponedUntil === tomorrow)
+      );
+      if (hasSiblingTomorrow) {
+        closeTask(task.id); // sibling var → sil
+      } else {
+        updateTask(task.id, {postponedUntil:tomorrow, overdue:false, time:tomorrow, originalTime:task.postponedUntil||task.time});
+      }
       return;
     }
-    if (task.recurrence==="haftalik"||task.recurrence==="aylik") {
-      updateTask(task.id,{postponedUntil:tomorrow,overdue:false,originalTime:task.time,time:tomorrow});
-    }
+    // Tek-seferlik
+    updateTask(task.id,{postponedUntil:tomorrow,overdue:false,time:tomorrow,originalTime:task.time});
   };
 
   const toggleDateComplete = (task, ds) => {
@@ -1096,14 +1094,27 @@ function Yapilacaklar() {
     if(!title)return;
     s.add();
     const today=localDateStr();
-    const id=Date.now();
-    // Tarih etiketini zaman değerine göre belirle
-    let initialPrefix;
-    if(newTask.time==="bugun") initialPrefix=datePrefix(today);
-    else if(newTask.time==="yarin") initialPrefix=datePrefix(addDays(today,1));
-    else if(newTask.time&&newTask.time.match(/^\d{4}/)) initialPrefix=datePrefix(newTask.time);
-    else initialPrefix=datePrefix(today);
-    setTasks(prev=>[...prev,{id,category:newTask.category,emoji:newTask.emoji,title:initialPrefix+" "+title,detail:newTask.detail,priority:newTask.priority,time:newTask.time,status:"bekliyor",note:"",recurrence:newTask.recurrence,recurrenceDays:newTask.recurrenceDays,subtasks:[],completedDates:[],startedAt:null,lastResetDate:today,overdue:false,postponedUntil:null}]);
+    let startDate;
+    if(newTask.time==="bugun") startDate=today;
+    else if(newTask.time==="yarin") startDate=addDays(today,1);
+    else if(newTask.time&&newTask.time.match(/^\d{4}/)) startDate=newTask.time;
+    else startDate=today;
+
+    if(newTask.recurrence!=="tek-seferlik") {
+      // Seri görevi: günlük için gün seçimi şart değil, haftalık/aylık için şart
+      if((newTask.recurrence==="haftalik"||newTask.recurrence==="aylik")&&(!newTask.recurrenceDays||newTask.recurrenceDays.length===0)){
+        alert("Lütfen tekrar günü seçin"); return;
+      }
+      const seriesId="series_"+Date.now();
+      const firstDate=getFirstScheduledDateOnOrAfter(newTask, startDate);
+      if(!firstDate){ alert("Uygun tekrar günü bulunamadı"); return; }
+      const generated=generateSeriesTasks(newTask, title, firstDate, seriesId);
+      if(generated.length>0) setTasks(prev=>[...prev,...generated]);
+    } else {
+      const prefix=datePrefix(startDate);
+      const id=Date.now();
+      setTasks(prev=>[...prev,{id,seriesId:null,rawTitle:title,category:newTask.category,emoji:newTask.emoji,title:prefix+" "+title,detail:newTask.detail,priority:newTask.priority,time:startDate,status:"bekliyor",note:"",recurrence:"tek-seferlik",recurrenceDays:[],subtasks:[],completedDates:[],startedAt:null,lastResetDate:today,overdue:false,postponedUntil:null,originalTime:null}]);
+    }
     setNewTask({title:"",detail:"",category:"Kişisel",emoji:"📌",priority:"orta",time:"bugun",recurrence:"tek-seferlik",recurrenceDays:[]});
     setShowNewTaskRecurrence(false);
     setAddingTask(false);
